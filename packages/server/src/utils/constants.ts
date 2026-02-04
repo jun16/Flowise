@@ -2,6 +2,7 @@ import Auth0SSO from '../enterprise/sso/Auth0SSO'
 import AzureSSO from '../enterprise/sso/AzureSSO'
 import GithubSSO from '../enterprise/sso/GithubSSO'
 import GoogleSSO from '../enterprise/sso/GoogleSSO'
+import PigxSSO from '../enterprise/sso/PigxSSO'
 
 export const WHITELIST_URLS = [
     '/api/v1/verify/apikey/',
@@ -51,7 +52,10 @@ export const WHITELIST_URLS = [
     Auth0SSO.CALLBACK_URI,
     GithubSSO.LOGIN_URI,
     GithubSSO.LOGOUT_URI,
-    GithubSSO.CALLBACK_URI
+    GithubSSO.CALLBACK_URI,
+    PigxSSO.LOGIN_URI,
+    PigxSSO.LOGOUT_URI,
+    PigxSSO.CALLBACK_URI
 ]
 
 export const API_KEY_BLACKLIST_URLS = ['/api/v1/nvidia-nim']

@@ -14,6 +14,7 @@ import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import { StatusCodes } from 'http-status-codes'
 import { Platform } from '../../Interface'
 import { UserStatus } from '../database/entities/user.entity'
+import NikaUser from '../nika/user/NikaUser'
 
 abstract class SSOBase {
     protected app: express.Application
@@ -76,6 +77,14 @@ abstract class SSOBase {
                     wu = newAccount.workspaceUser
                     wu.workspace = newAccount.workspace
                     user = newAccount.user
+                } else {
+                    //创建用户
+                    const nikaUserService = new NikaUser()
+                    const result = await nikaUserService.createNewSSOUser(email, profile.displayName || email, queryRunner)
+                    user = result.user
+                    wu = result.workspaceUser
+                    wu.workspace = result.workspace
+                    console.log(`[NIKA_SSO] 用户${email}创建成功，ID：${user.id}`)
                 }
             } else {
                 if (user.status === UserStatus.INVITED) {

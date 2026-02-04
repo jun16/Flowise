@@ -32,6 +32,8 @@
         "user:windows": "cd bin && run user",
         "user:default": "cd bin && ./run user",
         "dev": "nodemon",
+        "devde": "nodemon --inspect",
+        "debug": "node --inspect ./bin/run start",
         "oclif-dev": "run-script-os",
         "oclif-dev:windows": "cd bin && dev start",
         "oclif-dev:default": "cd bin && ./dev start",

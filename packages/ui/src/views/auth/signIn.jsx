@@ -34,6 +34,7 @@ import AzureSSOLoginIcon from '@/assets/images/microsoft-azure.svg'
 import GoogleSSOLoginIcon from '@/assets/images/google.svg'
 import Auth0SSOLoginIcon from '@/assets/images/auth0.svg'
 import GithubSSOLoginIcon from '@/assets/images/github.svg'
+import PigxSSOLoginIcon from '@/assets/images/pigx.svg'
 
 // ==============================|| SignInPage ||============================== //
 
@@ -97,6 +98,8 @@ const SignInPage = () => {
     useEffect(() => {
         store.dispatch(logoutSuccess())
         setAuthRateLimitError(null)
+        // Always add pigx for testing regardless of platform type
+        setConfiguredSsoProviders(['pigx'])
         if (!isOpenSource) {
             getDefaultProvidersApi.request()
         }
@@ -146,7 +149,15 @@ const SignInPage = () => {
     useEffect(() => {
         if (getDefaultProvidersApi.data && getDefaultProvidersApi.data.providers) {
             //data is an array of objects, store only the provider attribute
-            setConfiguredSsoProviders(getDefaultProvidersApi.data.providers.map((provider) => provider))
+            const providers = getDefaultProvidersApi.data.providers.map((provider) => provider)
+            // Add pigx to the list for testing
+            if (!providers.includes('pigx')) {
+                providers.push('pigx')
+            }
+            setConfiguredSsoProviders(providers)
+        } else {
+            // If no providers returned, add pigx for testing
+            setConfiguredSsoProviders(['pigx'])
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,6 +346,25 @@ const SignInPage = () => {
                                                 }
                                             >
                                                 Sign In With Github
+                                            </Button>
+                                        )
+                                )}
+                            {configuredSsoProviders &&
+                                configuredSsoProviders.map(
+                                    (ssoProvider) =>
+                                        ssoProvider === 'pigx' && (
+                                            <Button
+                                                key={ssoProvider}
+                                                variant='outlined'
+                                                style={{ borderRadius: 12, height: 45, marginRight: 5, lineHeight: 0 }}
+                                                onClick={() => signInWithSSO(ssoProvider)}
+                                                startIcon={
+                                                    <Icon>
+                                                        <img src={PigxSSOLoginIcon} alt={'PigxSSO'} width={20} height={20} />
+                                                    </Icon>
+                                                }
+                                            >
+                                                Sign In With Pigx
                                             </Button>
                                         )
                                 )}

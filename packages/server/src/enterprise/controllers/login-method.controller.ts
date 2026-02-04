@@ -11,6 +11,7 @@ import Auth0SSO from '../sso/Auth0SSO'
 import AzureSSO from '../sso/AzureSSO'
 import GithubSSO from '../sso/GithubSSO'
 import GoogleSSO from '../sso/GoogleSSO'
+import PigxSSO from '../sso/PigxSSO'
 import { decrypt } from '../utils/encryption.util'
 
 export class LoginMethodController {
@@ -75,7 +76,8 @@ export class LoginMethodController {
                     { providerName: 'azure', callbackURL: AzureSSO.getCallbackURL() },
                     { providerName: 'google', callbackURL: GoogleSSO.getCallbackURL() },
                     { providerName: 'auth0', callbackURL: Auth0SSO.getCallbackURL() },
-                    { providerName: 'github', callbackURL: GithubSSO.getCallbackURL() }
+                    { providerName: 'github', callbackURL: GithubSSO.getCallbackURL() },
+                    { providerName: 'pigx', callbackURL: PigxSSO.getCallbackURL() }
                 ]
             }
             let loginMethod: any
@@ -134,6 +136,9 @@ export class LoginMethodController {
                 return res.json(response)
             } else if (req.body.providerName === 'github') {
                 const response = await GithubSSO.testSetup(providers[0].config)
+                return res.json(response)
+            } else if (req.body.providerName === 'pigx') {
+                const response = await PigxSSO.testSetup(providers[0].config)
                 return res.json(response)
             } else {
                 return res.json({ error: 'Provider not supported' })
