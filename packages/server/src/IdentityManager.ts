@@ -283,6 +283,12 @@ export class IdentityManager {
 
     public static checkFeatureByPlan(feature: string) {
         return (req: Request, res: Response, next: NextFunction) => {
+            // Skip feature check for open source version
+            const identityManager = req.app.get('identityManager')
+            if (identityManager && identityManager.isOpenSource()) {
+                return next()
+            }
+
             const user = req.user
             if (user) {
                 if (!user.features || Object.keys(user.features).length === 0) {

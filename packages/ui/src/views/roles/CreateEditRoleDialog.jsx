@@ -160,10 +160,8 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
             const permissions = getAllPermissionsApi.data
             Object.keys(permissions).forEach((category) => {
                 permissions[category] = permissions[category].filter((permission) => {
-                    if (isOpenSource) return permission.isOpenSource
-                    if (isEnterpriseLicensed) return permission.isEnterprise
-                    if (isCloud) return permission.isCloud
-                    return false // fallback - show nothing if no platform is set
+                    // Show all permissions regardless of platform (like enterprise version)
+                    return true
                 })
             })
             // Remove categories that have no permissions left
@@ -229,6 +227,7 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
                     })
                 })
                 .flat()
+                .filter(Boolean)
             saveObj.permissions = JSON.stringify(tempPermissions)
             let saveResp
             if (dialogProps.type === 'EDIT') {

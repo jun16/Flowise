@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSelector } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 
 // material-ui
-import { Check } from '@mui/icons-material'
+import { Check, Settings } from '@mui/icons-material'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import {
     Dialog,
@@ -17,9 +17,10 @@ import {
     ListItemText,
     Menu,
     MenuItem,
-    DialogActions
+    DialogActions,
+    Fade
 } from '@mui/material'
-import { alpha, styled } from '@mui/material/styles'
+import { alpha, styled, useTheme } from '@mui/material/styles'
 
 // api
 import userApi from '@/api/user'
@@ -33,6 +34,7 @@ import { useConfig } from '@/store/context/ConfigContext'
 // store
 import { store } from '@/store'
 import { logoutSuccess, workspaceSwitchSuccess } from '@/store/reducers/authSlice'
+import { enqueueSnackbar } from '@/store/actions'
 
 // ==============================|| WORKSPACE SWITCHER ||============================== //
 
@@ -47,23 +49,58 @@ const StyledMenu = styled((props) => (
             vertical: 'top',
             horizontal: 'right'
         }}
+        transitionDuration={{
+            enter: 300,
+            exit: 200
+        }}
+        TransitionComponent={Fade}
         {...props}
     />
 ))(({ theme }) => ({
     '& .MuiPaper-root': {
         borderRadius: 6,
         marginTop: theme.spacing(1),
-        minWidth: 180,
+        minWidth: 160,
+        [theme.breakpoints.up('sm')]: {
+            minWidth: 180
+        },
+        [theme.breakpoints.up('md')]: {
+            minWidth: 200
+        },
+        maxWidth: '80vw',
+        [theme.breakpoints.up('sm')]: {
+            maxWidth: 'auto'
+        },
         boxShadow:
             'rgb(255, 255, 255) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 10px 15px -3px, rgba(0, 0, 0, 0.05) 0px 4px 6px -2px',
         '& .MuiMenu-list': {
-            padding: '4px 0'
+            padding: '4px 0',
+            maxHeight: '300px'
         },
         '& .MuiMenuItem-root': {
+            padding: '6px 16px',
+            [theme.breakpoints.up('sm')]: {
+                padding: '8px 16px'
+            },
             '& .MuiSvgIcon-root': {
-                fontSize: 18,
+                fontSize: 16,
+                [theme.breakpoints.up('sm')]: {
+                    fontSize: 18
+                },
                 color: theme.palette.text.secondary,
                 marginRight: theme.spacing(1.5)
+            },
+            '& .MuiListItemText-root': {
+                '& .MuiTypography-root': {
+                    fontSize: '0.75rem',
+                    [theme.breakpoints.up('sm')]: {
+                        fontSize: '0.875rem'
+                    }
+                }
+            },
+            '&:hover': {
+                backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                transition: 'background-color 0.2s ease'
             },
             '&:active': {
                 backgroundColor: alpha(theme.palette.primary.main, theme.palette.action.selectedOpacity)
@@ -74,6 +111,8 @@ const StyledMenu = styled((props) => (
 
 const WorkspaceSwitcher = () => {
     const navigate = useNavigate()
+    const theme = useTheme()
+    const dispatch = useDispatch()
 
     const user = useSelector((state) => state.auth.user)
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
@@ -108,8 +147,13 @@ const WorkspaceSwitcher = () => {
     const switchWorkspace = async (id) => {
         setAnchorEl(null)
         if (activeWorkspace !== id) {
-            setIsSwitching(true)
-            switchWorkspaceApi.request(id)
+            // 只有当有多个工作空间时才执行切换操作
+            if (assignedWorkspaces.length > 1) {
+                setIsSwitching(true)
+                // 存储选择的工作空间到localStorage
+                localStorage.setItem('activeWorkspaceId', id)
+                switchWorkspaceApi.request(id)
+            }
         }
     }
 
@@ -120,21 +164,38 @@ const WorkspaceSwitcher = () => {
     useEffect(() => {
         // Fetch workspaces when component mounts
         if (isAuthenticated && user) {
-            const WORKSPACE_FLAG = 'feat:workspaces'
-            if (Object.hasOwnProperty.call(features, WORKSPACE_FLAG)) {
-                const flag = features[WORKSPACE_FLAG] === 'true' || features[WORKSPACE_FLAG] === true
-                if (flag) {
-                    if (isEnterpriseLicensed) {
-                        getWorkspacesByOrganizationIdUserIdApi.request(user.activeOrganizationId, user.id)
-                    } else {
-                        getWorkspacesByUserIdApi.request(user.id)
-                    }
+            // 移除对feat:workspaces标志的依赖，确保所有用户都能看到工作空间切换功能
+            try {
+                if (isEnterpriseLicensed && user.activeOrganizationId) {
+                    getWorkspacesByOrganizationIdUserIdApi.request(user.activeOrganizationId, user.id)
+                } else {
+                    getWorkspacesByUserIdApi.request(user.id)
                 }
+            } catch (error) {
+                console.error('Error fetching workspaces:', error)
+                // 即使API调用失败，也要确保切换器显示，以便用户能访问管理页面
+                setAssignedWorkspaces([])
             }
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAuthenticated, user, features, isEnterpriseLicensed])
+    }, [isAuthenticated, user, isEnterpriseLicensed])
+
+    useEffect(() => {
+        // Check for stored workspace in localStorage when component mounts
+        if (isAuthenticated && user && assignedWorkspaces.length > 0) {
+            const storedWorkspaceId = localStorage.getItem('activeWorkspaceId')
+            if (storedWorkspaceId && storedWorkspaceId !== user.activeWorkspaceId) {
+                // Switch to stored workspace if it's different from current
+                const workspaceExists = assignedWorkspaces.find((w) => w.id === storedWorkspaceId)
+                if (workspaceExists && assignedWorkspaces.length > 1) {
+                    setIsSwitching(true)
+                    switchWorkspaceApi.request(storedWorkspaceId)
+                }
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAuthenticated, user, assignedWorkspaces.length])
 
     useEffect(() => {
         if (getWorkspacesByOrganizationIdUserIdApi.data) {
@@ -185,22 +246,44 @@ const WorkspaceSwitcher = () => {
             setIsSwitching(false)
             store.dispatch(workspaceSwitchSuccess(switchWorkspaceApi.data))
 
+            // 显示成功提示
+            dispatch(
+                enqueueSnackbar({
+                    message: 'Workspace switched successfully',
+                    options: {
+                        variant: 'success',
+                        autoHideDuration: 3000
+                    }
+                })
+            )
+
             // get the current path and navigate to the same after refresh
             navigate('/', { replace: true })
             navigate(0)
         }
-    }, [switchWorkspaceApi.data, navigate])
+    }, [switchWorkspaceApi.data, navigate, dispatch])
 
     useEffect(() => {
         if (switchWorkspaceApi.error) {
             setIsSwitching(false)
             setShowWorkspaceUnavailableDialog(false)
 
-            // Set error message and show error dialog
-            setErrorMessage(switchWorkspaceApi.error.message || 'Failed to switch workspace')
-            setShowErrorDialog(true)
+            // 显示错误提示
+            const errorMessage = switchWorkspaceApi.error.message || 'Failed to switch workspace'
+            dispatch(
+                enqueueSnackbar({
+                    message: errorMessage,
+                    options: {
+                        variant: 'error',
+                        autoHideDuration: 5000
+                    }
+                })
+            )
+
+            // 清除localStorage中的错误工作空间ID
+            localStorage.removeItem('activeWorkspaceId')
         }
-    }, [switchWorkspaceApi.error])
+    }, [switchWorkspaceApi.error, dispatch])
 
     useEffect(() => {
         try {
@@ -242,22 +325,47 @@ const WorkspaceSwitcher = () => {
 
     return (
         <>
-            {isAuthenticated &&
-            user &&
-            assignedWorkspaces?.length > 1 &&
-            !(assignedWorkspaces.length === 1 && user.activeWorkspace === 'Default Workspace') ? (
+            {isAuthenticated && user ? (
                 <>
                     <Button
-                        sx={{ mr: 4 }}
+                        sx={{
+                            mr: { xs: 2, sm: 3, md: 4 },
+                            fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                            padding: { xs: '6px 12px', sm: '8px 16px' },
+                            minWidth: { xs: '100px', sm: '120px' },
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                                backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                                transform: 'translateY(-1px)'
+                            },
+                            '&:active': {
+                                transform: 'translateY(0)'
+                            }
+                        }}
                         id='workspace-switcher'
                         aria-controls={open ? 'workspace-switcher-menu' : undefined}
                         aria-haspopup='true'
                         aria-expanded={open ? 'true' : undefined}
                         disableElevation
                         onClick={handleClick}
-                        endIcon={<KeyboardArrowDownIcon />}
+                        endIcon={
+                            <KeyboardArrowDownIcon
+                                sx={{
+                                    transition: 'transform 0.2s ease',
+                                    transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+                                    fontSize: { xs: '1rem', sm: '1.125rem' }
+                                }}
+                            />
+                        }
                     >
-                        {user.activeWorkspace}
+                        <Typography
+                            noWrap
+                            sx={{
+                                maxWidth: { xs: '120px', sm: '160px', md: '200px' }
+                            }}
+                        >
+                            {user.activeWorkspace || 'Workspaces'}
+                        </Typography>
                     </Button>
                     <StyledMenu
                         id='workspace-switcher-menu'
@@ -268,26 +376,44 @@ const WorkspaceSwitcher = () => {
                         open={open}
                         onClose={handleClose}
                     >
-                        {assignedWorkspaces.map((item, index) => (
-                            <MenuItem
-                                onClick={() => {
-                                    switchWorkspace(item.id)
-                                }}
-                                key={index}
-                                disableRipple
-                            >
-                                {item.id === user.activeWorkspaceId ? (
-                                    <>
-                                        <ListItemIcon>
-                                            <Check />
-                                        </ListItemIcon>
-                                        <ListItemText>{item.name}</ListItemText>
-                                    </>
-                                ) : (
-                                    <ListItemText inset>{item.name}</ListItemText>
-                                )}
+                        {assignedWorkspaces.length > 0 ? (
+                            assignedWorkspaces.map((item, index) => (
+                                <MenuItem
+                                    onClick={() => {
+                                        switchWorkspace(item.id)
+                                    }}
+                                    key={index}
+                                    disableRipple
+                                >
+                                    {item.id === user.activeWorkspaceId ? (
+                                        <>
+                                            <ListItemIcon>
+                                                <Check />
+                                            </ListItemIcon>
+                                            <ListItemText>{item.name}</ListItemText>
+                                        </>
+                                    ) : (
+                                        <ListItemText inset>{item.name}</ListItemText>
+                                    )}
+                                </MenuItem>
+                            ))
+                        ) : (
+                            <MenuItem disabled disableRipple>
+                                <ListItemText inset>No workspaces yet</ListItemText>
                             </MenuItem>
-                        ))}
+                        )}
+                        <MenuItem
+                            onClick={() => {
+                                setAnchorEl(null)
+                                navigate('/workspaces')
+                            }}
+                            disableRipple
+                        >
+                            <ListItemIcon>
+                                <Settings />
+                            </ListItemIcon>
+                            <ListItemText>Manage Workspaces</ListItemText>
+                        </MenuItem>
                     </StyledMenu>
                 </>
             ) : null}

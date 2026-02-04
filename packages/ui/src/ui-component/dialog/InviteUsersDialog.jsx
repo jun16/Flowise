@@ -115,6 +115,17 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const [selectedRole, setSelectedRole] = useState('')
     const [isSaving, setIsSaving] = useState(false)
 
+    // Additional state for creating users directly
+    const [createUserForm, setCreateUserForm] = useState({
+        name: '',
+        email: '',
+        password: '',
+        confirmPassword: ''
+    })
+    const [formErrors, setFormErrors] = useState({})
+
+    const isCreateMode = dialogProps.type === 'CREATE'
+
     const getAllRolesApi = useApi(roleApi.getAllRolesByOrganizationId)
     const getAllWorkspacesByOrganizationIdApi = useApi(workspaceApi.getAllWorkspacesByOrganizationId)
     const getWorkspacesByUserIdApi = useApi(userApi.getWorkspacesByUserId)
@@ -281,7 +292,94 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         }
     }
 
+    const validateCreateUserForm = () => {
+        const errors = {}
+        if (!createUserForm.name.trim()) {
+            errors.name = 'Name is required'
+        }
+        if (!createUserForm.email.trim()) {
+            errors.email = 'Email is required'
+        } else if (!validateEmail(createUserForm.email)) {
+            errors.email = 'Invalid email address'
+        }
+        if (!createUserForm.password) {
+            errors.password = 'Password is required'
+        } else if (createUserForm.password.length < 6) {
+            errors.password = 'Password must be at least 6 characters'
+        }
+        if (createUserForm.password !== createUserForm.confirmPassword) {
+            errors.confirmPassword = 'Passwords do not match'
+        }
+        setFormErrors(errors)
+        return Object.keys(errors).length === 0
+    }
+
+    const saveCreateUser = async () => {
+        if (!validateCreateUserForm()) {
+            return
+        }
+
+        setIsSaving(true)
+        try {
+            const saveObj = {
+                user: {
+                    name: createUserForm.name,
+                    email: createUserForm.email,
+                    credential: createUserForm.password,
+                    createdBy: currentUser.id
+                },
+                workspace: {
+                    id: selectedWorkspace.id
+                },
+                role: {
+                    id: selectedRole.id
+                }
+            }
+
+            const response = await accountApi.createAccount(saveObj)
+            if (response.data) {
+                enqueueSnackbar({
+                    message: 'User created successfully',
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'success',
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
+                onConfirm()
+            } else {
+                throw new Error('No data received from the server')
+            }
+        } catch (error) {
+            console.error('Error in saveCreateUser:', error)
+            enqueueSnackbar({
+                message: `Failed to create user: ${error.response?.data?.message || error.message || 'Unknown error'}`,
+                options: {
+                    key: new Date().getTime() + Math.random(),
+                    variant: 'error',
+                    persist: true,
+                    action: (key) => (
+                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                            <IconX />
+                        </Button>
+                    )
+                }
+            })
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
     const saveInvite = async () => {
+        if (isCreateMode) {
+            await saveCreateUser()
+            return
+        }
+
         if (selectedUsers.length) {
             const existingEmails = []
             for (const orgUser of orgUsers) {
@@ -634,78 +732,177 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             <DialogTitle sx={{ fontSize: '1rem' }} id='alert-dialog-title'>
                 <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                     <IconUser style={{ marginRight: '10px' }} />
-                    Invite Users
+                    {isCreateMode ? 'Create User' : 'Invite Users'}
                 </div>
             </DialogTitle>
             <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box>
-                    <Typography>
-                        Select Users<span style={{ color: 'red' }}>&nbsp;*</span>
-                    </Typography>
-                    <Autocomplete
-                        multiple
-                        options={allUsers}
-                        getOptionKey={(option) => option.userId}
-                        getOptionLabel={(option) => option.email || ''}
-                        filterOptions={userSearchFilterOptions}
-                        onChange={handleChange}
-                        inputValue={searchString}
-                        onInputChange={handleInputChange}
-                        isOptionEqualToValue={(option, value) => {
-                            // Compare based on user.email for existing users or email for new users
-                            if (option.isNewUser && value.isNewUser) {
-                                return option.email === value.email
-                            } else if (!option.isNewUser && !value.isNewUser) {
-                                return option.user?.email === value.user?.email
-                            }
-                            return false
-                        }}
-                        renderInput={renderUserSearchInput}
-                        renderOption={renderUserSearchOptions}
-                        renderTags={renderSelectedUsersTags}
-                        sx={{ mt: 1 }}
-                        value={selectedUsers}
-                        PopperComponent={StyledPopper}
-                    />
-                </Box>
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
-                    <Box sx={{ gridColumn: 'span 1' }}>
-                        <Typography>
-                            Workspace<span style={{ color: 'red' }}>&nbsp;*</span>
-                        </Typography>
-                        <Autocomplete
-                            disabled={checkWorkspaceDisabled()}
-                            getOptionLabel={(option) => option.label || ''}
-                            onChange={handleWorkspaceChange}
-                            options={workspaces}
-                            renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Workspace' />}
-                            sx={{ mt: 0.5 }}
-                            value={getWorkspaceValue()}
-                            PopperComponent={StyledPopper}
-                        />
-                    </Box>
-                    <Box sx={{ gridColumn: 'span 1' }}>
-                        <Typography>
-                            Role to Assign<span style={{ color: 'red' }}>&nbsp;*</span>
-                        </Typography>
-                        <Autocomplete
-                            getOptionLabel={(option) => option.label || ''}
-                            onChange={handleRoleChange}
-                            options={availableRoles}
-                            renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Role' />}
-                            sx={{ mt: 0.5 }}
-                            value={getRoleValue()}
-                            PopperComponent={StyledPopper}
-                        />
-                    </Box>
-                </Box>
+                {isCreateMode ? (
+                    // Create user form
+                    <>
+                        <Box>
+                            <Typography>
+                                Name<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <TextField
+                                fullWidth
+                                variant='outlined'
+                                value={createUserForm.name}
+                                onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value })}
+                                error={!!formErrors.name}
+                                helperText={formErrors.name}
+                                sx={{ mt: 0.5 }}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography>
+                                Email<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <TextField
+                                fullWidth
+                                variant='outlined'
+                                type='email'
+                                value={createUserForm.email}
+                                onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })}
+                                error={!!formErrors.email}
+                                helperText={formErrors.email}
+                                sx={{ mt: 0.5 }}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography>
+                                Password<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <TextField
+                                fullWidth
+                                variant='outlined'
+                                type='password'
+                                value={createUserForm.password}
+                                onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })}
+                                error={!!formErrors.password}
+                                helperText={formErrors.password}
+                                sx={{ mt: 0.5 }}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography>
+                                Confirm Password<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <TextField
+                                fullWidth
+                                variant='outlined'
+                                type='password'
+                                value={createUserForm.confirmPassword}
+                                onChange={(e) => setCreateUserForm({ ...createUserForm, confirmPassword: e.target.value })}
+                                error={!!formErrors.confirmPassword}
+                                helperText={formErrors.confirmPassword}
+                                sx={{ mt: 0.5 }}
+                            />
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                            <Box sx={{ gridColumn: 'span 1' }}>
+                                <Typography>
+                                    Workspace<span style={{ color: 'red' }}>&nbsp;*</span>
+                                </Typography>
+                                <Autocomplete
+                                    disabled={checkWorkspaceDisabled()}
+                                    getOptionLabel={(option) => option.label || ''}
+                                    onChange={handleWorkspaceChange}
+                                    options={workspaces}
+                                    renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Workspace' />}
+                                    sx={{ mt: 0.5 }}
+                                    value={getWorkspaceValue()}
+                                    PopperComponent={StyledPopper}
+                                />
+                            </Box>
+                            <Box sx={{ gridColumn: 'span 1' }}>
+                                <Typography>
+                                    Role to Assign<span style={{ color: 'red' }}>&nbsp;*</span>
+                                </Typography>
+                                <Autocomplete
+                                    getOptionLabel={(option) => option.label || ''}
+                                    onChange={handleRoleChange}
+                                    options={availableRoles}
+                                    renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Role' />}
+                                    sx={{ mt: 0.5 }}
+                                    value={getRoleValue()}
+                                    PopperComponent={StyledPopper}
+                                />
+                            </Box>
+                        </Box>
+                    </>
+                ) : (
+                    // Invite users form
+                    <>
+                        <Box>
+                            <Typography>
+                                Select Users<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <Autocomplete
+                                multiple
+                                options={allUsers}
+                                getOptionKey={(option) => option.userId}
+                                getOptionLabel={(option) => option.email || ''}
+                                filterOptions={userSearchFilterOptions}
+                                onChange={handleChange}
+                                inputValue={searchString}
+                                onInputChange={handleInputChange}
+                                isOptionEqualToValue={(option, value) => {
+                                    // Compare based on user.email for existing users or email for new users
+                                    if (option.isNewUser && value.isNewUser) {
+                                        return option.email === value.email
+                                    } else if (!option.isNewUser && !value.isNewUser) {
+                                        return option.user?.email === value.user?.email
+                                    }
+                                    return false
+                                }}
+                                renderInput={renderUserSearchInput}
+                                renderOption={renderUserSearchOptions}
+                                renderTags={renderSelectedUsersTags}
+                                sx={{ mt: 1 }}
+                                value={selectedUsers}
+                                PopperComponent={StyledPopper}
+                            />
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                            <Box sx={{ gridColumn: 'span 1' }}>
+                                <Typography>
+                                    Workspace<span style={{ color: 'red' }}>&nbsp;*</span>
+                                </Typography>
+                                <Autocomplete
+                                    disabled={checkWorkspaceDisabled()}
+                                    getOptionLabel={(option) => option.label || ''}
+                                    onChange={handleWorkspaceChange}
+                                    options={workspaces}
+                                    renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Workspace' />}
+                                    sx={{ mt: 0.5 }}
+                                    value={getWorkspaceValue()}
+                                    PopperComponent={StyledPopper}
+                                />
+                            </Box>
+                            <Box sx={{ gridColumn: 'span 1' }}>
+                                <Typography>
+                                    Role to Assign<span style={{ color: 'red' }}>&nbsp;*</span>
+                                </Typography>
+                                <Autocomplete
+                                    getOptionLabel={(option) => option.label || ''}
+                                    onChange={handleRoleChange}
+                                    options={availableRoles}
+                                    renderInput={(params) => <TextField {...params} variant='outlined' placeholder='Select Role' />}
+                                    sx={{ mt: 0.5 }}
+                                    value={getRoleValue()}
+                                    PopperComponent={StyledPopper}
+                                />
+                            </Box>
+                        </Box>
+                    </>
+                )}
             </DialogContent>
             <DialogActions sx={{ px: 3, pb: 2 }}>
                 <Button onClick={() => onCancel()} disabled={isSaving}>
                     {dialogProps.cancelButtonName}
                 </Button>
                 <StyledButton
-                    disabled={checkDisabled()}
+                    disabled={isCreateMode ? !selectedWorkspace || !selectedRole : checkDisabled()}
                     variant='contained'
                     onClick={saveInvite}
                     startIcon={isSaving ? <CircularProgress size={20} color='inherit' /> : null}

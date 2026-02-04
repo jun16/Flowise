@@ -16,7 +16,11 @@ import { decrypt } from '../utils/encryption.util'
 
 export class LoginMethodController {
     private assertEnterprisePlatform(): void {
-        const platformType = getRunningExpressApp().identityManager.getPlatformType()
+        const app = getRunningExpressApp()
+        if (!app || !app.identityManager) {
+            throw new InternalFlowiseError(StatusCodes.FORBIDDEN, GeneralErrorMessage.FORBIDDEN)
+        }
+        const platformType = app.identityManager.getPlatformType()
         if (platformType === Platform.CLOUD || platformType === Platform.OPEN_SOURCE) {
             throw new InternalFlowiseError(StatusCodes.FORBIDDEN, GeneralErrorMessage.FORBIDDEN)
         }
@@ -36,12 +40,16 @@ export class LoginMethodController {
     public async defaultMethods(req: Request, res: Response, next: NextFunction) {
         let queryRunner
         try {
-            queryRunner = getRunningExpressApp().AppDataSource.createQueryRunner()
+            const app = getRunningExpressApp()
+            if (!app || !app.identityManager) {
+                return res.status(StatusCodes.OK).json({})
+            }
+            queryRunner = app.AppDataSource.createQueryRunner()
             await queryRunner.connect()
             let organizationId
-            if (getRunningExpressApp().identityManager.getPlatformType() === Platform.CLOUD) {
+            if (app.identityManager.getPlatformType() === Platform.CLOUD) {
                 organizationId = undefined
-            } else if (getRunningExpressApp().identityManager.getPlatformType() === Platform.ENTERPRISE) {
+            } else if (app.identityManager.getPlatformType() === Platform.ENTERPRISE) {
                 const organizationService = new OrganizationService()
                 const organizations = await organizationService.readOrganization(queryRunner)
                 if (organizations.length > 0) {
@@ -73,8 +81,16 @@ export class LoginMethodController {
     public async read(req: Request, res: Response, next: NextFunction) {
         let queryRunner
         try {
+            const app = getRunningExpressApp()
+            if (!app || !app.identityManager) {
+                return res.status(StatusCodes.OK).json({ providers: [], callbacks: [] })
+            }
+            // Check if it's open source mode
+            if (app.identityManager.isOpenSource()) {
+                return res.status(StatusCodes.OK).json({ providers: [], callbacks: [] })
+            }
             this.assertEnterprisePlatform()
-            queryRunner = getRunningExpressApp().AppDataSource.createQueryRunner()
+            queryRunner = app.AppDataSource.createQueryRunner()
             await queryRunner.connect()
             const query = req.query as Partial<LoginMethod>
             const loginMethodService = new LoginMethodService()
@@ -95,12 +111,17 @@ export class LoginMethodController {
                 if (!loginMethod) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, LoginMethodErrorMessage.LOGIN_METHOD_NOT_FOUND)
                 loginMethod.config = JSON.parse(await decrypt(loginMethod.config))
             } else if (query.organizationId) {
-                loginMethod = await loginMethodService.readLoginMethodByOrganizationId(query.organizationId, queryRunner)
+                try {
+                    loginMethod = await loginMethodService.readLoginMethodByOrganizationId(query.organizationId, queryRunner)
 
-                for (let method of loginMethod) {
-                    method.config = JSON.parse(await decrypt(method.config))
+                    for (let method of loginMethod) {
+                        method.config = JSON.parse(await decrypt(method.config))
+                    }
+                    loginMethodConfig.providers = loginMethod
+                } catch (error) {
+                    // If organization not found or other error, return empty providers
+                    loginMethodConfig.providers = []
                 }
-                loginMethodConfig.providers = loginMethod
             } else {
                 throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, GeneralErrorMessage.UNHANDLED_EDGE_CASE)
             }

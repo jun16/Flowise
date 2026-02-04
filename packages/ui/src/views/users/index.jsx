@@ -280,6 +280,17 @@ const Users = () => {
         setShowInviteDialog(true)
     }
 
+    const createUser = () => {
+        const dialogProp = {
+            type: 'CREATE',
+            cancelButtonName: 'Cancel',
+            confirmButtonName: 'Create User',
+            data: null
+        }
+        setInviteDialogProps(dialogProp)
+        setShowInviteDialog(true)
+    }
+
     const edit = (user) => {
         if (user.status.toUpperCase() === 'INVITED') {
             editInvite(user)
@@ -404,12 +415,22 @@ const Users = () => {
                             <StyledPermissionButton
                                 permissionId={'workspace:add-user,users:manage'}
                                 variant='contained'
-                                sx={{ borderRadius: 2, height: '100%' }}
+                                sx={{ borderRadius: 2, height: '100%', mr: 2 }}
                                 onClick={addNew}
                                 startIcon={<IconPlus />}
-                                id='btn_createUser'
+                                id='btn_inviteUser'
                             >
                                 Invite User
+                            </StyledPermissionButton>
+                            <StyledPermissionButton
+                                permissionId={'workspace:add-user,users:manage'}
+                                variant='outlined'
+                                sx={{ borderRadius: 2, height: '100%' }}
+                                onClick={createUser}
+                                startIcon={<IconUser />}
+                                id='btn_createUser'
+                            >
+                                Create User
                             </StyledPermissionButton>
                         </ViewHeader>
                         {!isLoading && users.length === 0 ? (

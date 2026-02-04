@@ -33,12 +33,21 @@ export const ConfigProvider = ({ children }) => {
                         setEnterpriseLicensed(false)
                         setCloudLicensed(false)
                     }
+                } else {
+                    // Default to open source if platform type is not specified
+                    setOpenSource(true)
+                    setEnterpriseLicensed(false)
+                    setCloudLicensed(false)
                 }
 
                 setLoading(false)
             })
             .catch((error) => {
                 console.error('Error fetching data:', error)
+                // Default to open source on error
+                setOpenSource(true)
+                setEnterpriseLicensed(false)
+                setCloudLicensed(false)
                 setLoading(false)
             })
     }, [])

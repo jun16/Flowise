@@ -48,9 +48,9 @@ export const RequireAuth = ({ permission, display, children }) => {
     }
 
     // Step 2: Deployment Type Specific Logic
-    // Open Source: Only show features without display property
+    // Open Source: Allow all features
     if (isOpenSource) {
-        return !display ? children : <Navigate to='/unauthorized' replace />
+        return children
     }
 
     // Cloud & Enterprise: Check both permissions and feature flags
@@ -83,8 +83,8 @@ export const RequireAuth = ({ permission, display, children }) => {
         return children
     }
 
-    // Fallback: If none of the platform types match, deny access
-    return <Navigate to='/unauthorized' replace />
+    // Fallback: If none of the platform types match, default to open source
+    return children
 }
 
 RequireAuth.propTypes = {

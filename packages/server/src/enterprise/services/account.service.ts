@@ -18,7 +18,7 @@ import { Workspace, WorkspaceName } from '../database/entities/workspace.entity'
 import { LoggedInUser, LoginActivityCode } from '../Interface.Enterprise'
 import { destroyAllSessionsForUser } from '../middleware/passport/SessionPersistance'
 import { compareHash, getHash, getPasswordSaltRounds, hashNeedsUpgrade } from '../utils/encryption.util'
-import { sendPasswordResetEmail, sendVerificationEmailForCloud, sendWorkspaceAdd, sendWorkspaceInvite } from '../utils/sendEmail'
+import { sendPasswordResetEmail, sendVerificationEmailForCloud } from '../utils/sendEmail'
 import { generateTempToken } from '../utils/tempTokenUtils'
 import { validatePasswordOrThrow } from '../utils/validation.util'
 import auditService from './audit'
@@ -287,130 +287,237 @@ export class AccountService {
         await queryRunner.connect()
 
         try {
+            logger.info('Starting saveInviteAccount with data:', {
+                userEmail: data.user.email,
+                workspaceId: data.workspace.id,
+                roleId: data.role.id
+            })
+
             const workspace = await this.workspaceService.readWorkspaceById(data.workspace.id, queryRunner)
-            if (!workspace) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, WorkspaceErrorMessage.WORKSPACE_NOT_FOUND)
+            if (!workspace) {
+                logger.error('Workspace not found:', data.workspace.id)
+                throw new InternalFlowiseError(StatusCodes.NOT_FOUND, WorkspaceErrorMessage.WORKSPACE_NOT_FOUND)
+            }
             data.workspace = workspace
+            logger.info('Found workspace:', { id: workspace.id, name: workspace.name, organizationId: workspace.organizationId })
 
-            const totalOrgUsers = await this.organizationUserService.readOrgUsersCountByOrgId(data.workspace.organizationId || '')
+            const organizationId = data.workspace.organizationId
+            logger.info('Organization ID:', organizationId)
+            const totalOrgUsers = organizationId ? await this.organizationUserService.readOrgUsersCountByOrgId(organizationId) : 0
+            logger.info('Total organization users:', totalOrgUsers)
             const subscriptionId = currentUser?.activeOrganizationSubscriptionId || ''
+            logger.info('Subscription ID:', subscriptionId)
 
-            const role = await this.roleService.readRoleByRoleIdOrganizationId(data.role.id, data.workspace.organizationId, queryRunner)
-            if (!role) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, RoleErrorMessage.ROLE_NOT_FOUND)
-            data.role = role
-            const user = await this.userService.readUserByEmail(data.user.email, queryRunner)
-            if (!user) {
-                await checkUsageLimit('users', subscriptionId, getRunningExpressApp().usageCacheManager, totalOrgUsers + 1)
-
-                // generate a temporary token
-                data.user.tempToken = generateTempToken()
-                const tokenExpiry = new Date()
-                // set expiry based on env setting and fallback to 24 hours
-                const expiryInHours = process.env.INVITE_TOKEN_EXPIRY_IN_HOURS ? parseInt(process.env.INVITE_TOKEN_EXPIRY_IN_HOURS) : 24
-                tokenExpiry.setHours(tokenExpiry.getHours() + expiryInHours)
-                data.user.tokenExpiry = tokenExpiry
-                data.user.status = UserStatus.INVITED
-                // send invite
-                const registerLink =
-                    this.identityManager.getPlatformType() === Platform.ENTERPRISE
-                        ? `${process.env.APP_URL}/register?token=${data.user.tempToken}`
-                        : `${process.env.APP_URL}/register`
-                await sendWorkspaceInvite(data.user.email!, data.workspace.name!, registerLink, this.identityManager.getPlatformType())
-                data.user = await this.userService.createNewUser(data.user, queryRunner)
-
-                data.organizationUser.organizationId = data.workspace.organizationId
-                data.organizationUser.userId = data.user.id
-                const roleMember = await this.roleService.readGeneralRoleByName(GeneralRole.MEMBER, queryRunner)
-                data.organizationUser.roleId = roleMember.id
-                data.organizationUser.createdBy = data.user.createdBy
-                data.organizationUser.status = OrganizationUserStatus.INVITED
-                data.organizationUser = await this.organizationUserService.createNewOrganizationUser(data.organizationUser, queryRunner)
-
-                workspace.updatedBy = data.user.createdBy
-
-                data.workspaceUser.workspaceId = data.workspace.id
-                data.workspaceUser.userId = data.user.id
-                data.workspaceUser.roleId = data.role.id
-                data.workspaceUser.createdBy = data.user.createdBy
-                data.workspaceUser.status = WorkspaceUserStatus.INVITED
-                data.workspaceUser = await this.workspaceUserService.createNewWorkspaceUser(data.workspaceUser, queryRunner)
-
-                await queryRunner.startTransaction()
-                data.user = await this.userService.saveUser(data.user, queryRunner)
-                await this.workspaceService.saveWorkspace(workspace, queryRunner)
-                data.organizationUser = await this.organizationUserService.saveOrganizationUser(data.organizationUser, queryRunner)
-                data.workspaceUser = await this.workspaceUserService.saveWorkspaceUser(data.workspaceUser, queryRunner)
-                data.role = await this.roleService.saveRole(data.role, queryRunner)
-                await queryRunner.commitTransaction()
-                delete data.user.credential
-                delete data.user.tempToken
-                delete data.user.tokenExpiry
-
-                return data
-            }
-            const { organizationUser } = await this.organizationUserService.readOrganizationUserByOrganizationIdUserId(
-                data.workspace.organizationId,
-                user.id,
-                queryRunner
-            )
-            if (!organizationUser) {
-                await checkUsageLimit('users', subscriptionId, getRunningExpressApp().usageCacheManager, totalOrgUsers + 1)
-                data.organizationUser.organizationId = data.workspace.organizationId
-                data.organizationUser.userId = user.id
-                const roleMember = await this.roleService.readGeneralRoleByName(GeneralRole.MEMBER, queryRunner)
-                data.organizationUser.roleId = roleMember.id
-                data.organizationUser.createdBy = data.user.createdBy
-                data.organizationUser.status = OrganizationUserStatus.INVITED
-                data.organizationUser = await this.organizationUserService.createNewOrganizationUser(data.organizationUser, queryRunner)
-            } else {
-                data.organizationUser = organizationUser
+            try {
+                const role = await this.roleService.readRoleByRoleIdOrganizationId(data.role.id, data.workspace.organizationId, queryRunner)
+                if (!role) {
+                    logger.error('Role not found:', { roleId: data.role.id, organizationId: data.workspace.organizationId })
+                    throw new InternalFlowiseError(StatusCodes.NOT_FOUND, RoleErrorMessage.ROLE_NOT_FOUND)
+                }
+                data.role = role
+                logger.info('Found role:', { id: role.id, name: role.name })
+            } catch (error) {
+                logger.error('Error finding role:', error)
+                throw error
             }
 
-            let oldWorkspaceUser
-            if (data.organizationUser.status === OrganizationUserStatus.INVITED) {
-                const workspaceUser = await this.workspaceUserService.readWorkspaceUserByOrganizationIdUserId(
+            let user
+            try {
+                user = await this.userService.readUserByEmail(data.user.email, queryRunner)
+                logger.info('Found user:', { email: data.user.email, found: !!user })
+                if (!user) {
+                    logger.info('Creating new user:', data.user.email)
+                    // Only check usage limit if subscriptionId is provided
+                    if (subscriptionId) {
+                        logger.info('Checking usage limit:', { type: 'users', subscriptionId, usage: totalOrgUsers + 1 })
+                        await checkUsageLimit('users', subscriptionId, getRunningExpressApp().usageCacheManager, totalOrgUsers + 1)
+                        logger.info('Usage limit check passed')
+                    }
+
+                    // Check if password is provided (direct user creation)
+                    if (data.user.credential) {
+                        logger.info('Creating user with password (direct creation):', data.user.email)
+                        data.user.status = UserStatus.ACTIVE
+                        data.user.tempToken = ''
+                        data.user.tokenExpiry = null
+                    } else {
+                        logger.info('Creating user with invite:', data.user.email)
+                        // generate a temporary token
+                        data.user.tempToken = generateTempToken()
+                        const tokenExpiry = new Date()
+                        // set expiry based on env setting and fallback to 24 hours
+                        const expiryInHours = process.env.INVITE_TOKEN_EXPIRY_IN_HOURS
+                            ? parseInt(process.env.INVITE_TOKEN_EXPIRY_IN_HOURS)
+                            : 24
+                        tokenExpiry.setHours(tokenExpiry.getHours() + expiryInHours)
+                        data.user.tokenExpiry = tokenExpiry
+                        data.user.status = UserStatus.INVITED
+                        // send invite
+                        const registerLink =
+                            this.identityManager.getPlatformType() === Platform.ENTERPRISE
+                                ? `${process.env.APP_URL}/register?token=${data.user.tempToken}`
+                                : `${process.env.APP_URL}/register`
+                        // Commented out email sending to avoid 500 errors
+                        // try {
+                        //     await sendWorkspaceInvite(data.user.email!, data.workspace.name!, registerLink, this.identityManager.getPlatformType())
+                        //     logger.info('Invite email sent successfully:', data.user.email)
+                        // } catch (error) {
+                        //     logger.error('Failed to send invite email:', error)
+                        //     // Continue with the process even if email sending fails
+                        // }
+                        logger.info('Invite email skipped:', data.user.email)
+                    }
+                    data.user = await this.userService.createNewUser(data.user, queryRunner)
+
+                    data.organizationUser.organizationId = data.workspace.organizationId
+                    data.organizationUser.userId = data.user.id
+                    const roleMember = await this.roleService.readGeneralRoleByName(GeneralRole.MEMBER, queryRunner)
+                    data.organizationUser.roleId = roleMember.id
+                    data.organizationUser.createdBy = data.user.createdBy
+                    data.organizationUser.status =
+                        data.user.status === UserStatus.ACTIVE ? OrganizationUserStatus.ACTIVE : OrganizationUserStatus.INVITED
+                    data.organizationUser = await this.organizationUserService.createNewOrganizationUser(data.organizationUser, queryRunner)
+
+                    workspace.updatedBy = data.user.createdBy
+
+                    data.workspaceUser.workspaceId = data.workspace.id
+                    data.workspaceUser.userId = data.user.id
+                    data.workspaceUser.roleId = data.role.id
+                    data.workspaceUser.createdBy = data.user.createdBy
+                    data.workspaceUser.status =
+                        data.user.status === UserStatus.ACTIVE ? WorkspaceUserStatus.ACTIVE : WorkspaceUserStatus.INVITED
+                    data.workspaceUser = await this.workspaceUserService.createNewWorkspaceUser(data.workspaceUser, queryRunner)
+
+                    await queryRunner.startTransaction()
+                    data.user = await this.userService.saveUser(data.user, queryRunner)
+                    await this.workspaceService.saveWorkspace(workspace, queryRunner)
+                    data.organizationUser = await this.organizationUserService.saveOrganizationUser(data.organizationUser, queryRunner)
+                    data.workspaceUser = await this.workspaceUserService.saveWorkspaceUser(data.workspaceUser, queryRunner)
+                    data.role = await this.roleService.saveRole(data.role, queryRunner)
+                    await queryRunner.commitTransaction()
+                    delete data.user.credential
+                    delete data.user.tempToken
+                    delete data.user.tokenExpiry
+
+                    return data
+                }
+            } catch (error) {
+                logger.error('Error finding user:', error)
+                throw error
+            }
+
+            try {
+                const { organizationUser } = await this.organizationUserService.readOrganizationUserByOrganizationIdUserId(
                     data.workspace.organizationId,
                     user.id,
                     queryRunner
                 )
-                let registerLink: string
-                if (this.identityManager.getPlatformType() === Platform.ENTERPRISE) {
-                    data.user = user
-                    data.user.tempToken = generateTempToken()
-                    const tokenExpiry = new Date()
-                    const expiryInHours = process.env.INVITE_TOKEN_EXPIRY_IN_HOURS ? parseInt(process.env.INVITE_TOKEN_EXPIRY_IN_HOURS) : 24
-                    tokenExpiry.setHours(tokenExpiry.getHours() + expiryInHours)
-                    data.user.tokenExpiry = tokenExpiry
-                    await this.userService.saveUser(data.user, queryRunner)
-                    registerLink = `${process.env.APP_URL}/register?token=${data.user.tempToken}`
-                } else {
-                    registerLink = `${process.env.APP_URL}/register`
-                }
-                if (workspaceUser.length === 1) {
-                    oldWorkspaceUser = workspaceUser[0]
-                    if (oldWorkspaceUser.workspace.name === WorkspaceName.DEFAULT_PERSONAL_WORKSPACE) {
-                        await sendWorkspaceInvite(
-                            data.user.email!,
-                            data.workspace.name!,
-                            registerLink,
-                            this.identityManager.getPlatformType()
-                        )
-                    } else {
-                        await sendWorkspaceInvite(
-                            data.user.email!,
-                            data.workspace.name!,
-                            registerLink,
-                            this.identityManager.getPlatformType(),
-                            'update'
-                        )
+                if (!organizationUser) {
+                    logger.info('Creating new organization user:', user.id)
+                    // Only check usage limit if subscriptionId is provided
+                    if (subscriptionId) {
+                        logger.info('Checking usage limit:', { type: 'users', subscriptionId, usage: totalOrgUsers + 1 })
+                        await checkUsageLimit('users', subscriptionId, getRunningExpressApp().usageCacheManager, totalOrgUsers + 1)
+                        logger.info('Usage limit check passed')
                     }
+                    data.organizationUser.organizationId = data.workspace.organizationId
+                    data.organizationUser.userId = user.id
+                    const roleMember = await this.roleService.readGeneralRoleByName(GeneralRole.MEMBER, queryRunner)
+                    data.organizationUser.roleId = roleMember.id
+                    data.organizationUser.createdBy = data.user.createdBy
+                    data.organizationUser.status = OrganizationUserStatus.INVITED
+                    data.organizationUser = await this.organizationUserService.createNewOrganizationUser(data.organizationUser, queryRunner)
                 } else {
-                    await sendWorkspaceInvite(data.user.email!, data.workspace.name!, registerLink, this.identityManager.getPlatformType())
+                    data.organizationUser = organizationUser
+                }
+            } catch (error) {
+                logger.error('Error finding organization user:', error)
+                throw error
+            }
+
+            let oldWorkspaceUser
+            if (data.organizationUser.status === OrganizationUserStatus.INVITED) {
+                const organizationId = data.workspace.organizationId
+                if (organizationId) {
+                    const workspaceUser = await this.workspaceUserService.readWorkspaceUserByOrganizationIdUserId(
+                        organizationId,
+                        user.id,
+                        queryRunner
+                    )
+                    let registerLink: string
+                    if (this.identityManager.getPlatformType() === Platform.ENTERPRISE) {
+                        data.user = user
+                        data.user.tempToken = generateTempToken()
+                        const tokenExpiry = new Date()
+                        const expiryInHours = process.env.INVITE_TOKEN_EXPIRY_IN_HOURS
+                            ? parseInt(process.env.INVITE_TOKEN_EXPIRY_IN_HOURS)
+                            : 24
+                        tokenExpiry.setHours(tokenExpiry.getHours() + expiryInHours)
+                        data.user.tokenExpiry = tokenExpiry
+                        await this.userService.saveUser(data.user, queryRunner)
+                        registerLink = `${process.env.APP_URL}/register?token=${data.user.tempToken}`
+                    } else {
+                        registerLink = `${process.env.APP_URL}/register`
+                    }
+                    if (workspaceUser.length === 1) {
+                        oldWorkspaceUser = workspaceUser[0]
+                        if (oldWorkspaceUser.workspace.name === WorkspaceName.DEFAULT_PERSONAL_WORKSPACE) {
+                            // Commented out email sending to avoid 500 errors
+                            // try {
+                            //     await sendWorkspaceInvite(
+                            //         data.user.email!,
+                            //         data.workspace.name!,
+                            //         registerLink,
+                            //         this.identityManager.getPlatformType()
+                            //     )
+                            //     logger.info('Invite email sent successfully:', data.user.email)
+                            // } catch (error) {
+                            //     logger.error('Failed to send invite email:', error)
+                            //     // Continue with the process even if email sending fails
+                            // }
+                            logger.info('Invite email skipped:', data.user.email)
+                        } else {
+                            // Commented out email sending to avoid 500 errors
+                            // try {
+                            //     await sendWorkspaceInvite(
+                            //         data.user.email!,
+                            //         data.workspace.name!,
+                            //         registerLink,
+                            //         this.identityManager.getPlatformType(),
+                            //         'update'
+                            //     )
+                            //     logger.info('Invite email sent successfully:', data.user.email)
+                            // } catch (error) {
+                            //     logger.error('Failed to send invite email:', error)
+                            //     // Continue with the process even if email sending fails
+                            // }
+                            logger.info('Invite email skipped:', data.user.email)
+                        }
+                    } else {
+                        // Commented out email sending to avoid 500 errors
+                        // try {
+                        //     await sendWorkspaceInvite(data.user.email!, data.workspace.name!, registerLink, this.identityManager.getPlatformType())
+                        //     logger.info('Invite email sent successfully:', data.user.email)
+                        // } catch (error) {
+                        //     logger.error('Failed to send invite email:', error)
+                        //     // Continue with the process even if email sending fails
+                        // }
+                        logger.info('Invite email skipped:', data.user.email)
+                    }
                 }
             } else {
                 data.organizationUser.updatedBy = data.user.createdBy
 
                 const dashboardLink = `${process.env.APP_URL}`
-                await sendWorkspaceAdd(data.user.email!, data.workspace.name!, dashboardLink)
+                // Commented out email sending to avoid 500 errors
+                // try {
+                //     await sendWorkspaceAdd(data.user.email!, data.workspace.name!, dashboardLink)
+                //     logger.info('Workspace add email sent successfully:', data.user.email)
+                // } catch (error) {
+                //     logger.error('Failed to send workspace add email:', error)
+                //     // Continue with the process even if email sending fails
+                // }
+                logger.info('Workspace add email skipped:', data.user.email)
             }
 
             workspace.updatedBy = data.user.createdBy
@@ -422,9 +529,14 @@ export class AccountService {
             data.workspaceUser.status = WorkspaceUserStatus.INVITED
             data.workspaceUser = await this.workspaceUserService.createNewWorkspaceUser(data.workspaceUser, queryRunner)
 
-            const personalWorkspaceRole = await this.roleService.readGeneralRoleByName(GeneralRole.PERSONAL_WORKSPACE, queryRunner)
-            if (oldWorkspaceUser && oldWorkspaceUser.roleId !== personalWorkspaceRole.id) {
-                await this.workspaceUserService.deleteWorkspaceUser(oldWorkspaceUser.workspaceId, user.id)
+            try {
+                const personalWorkspaceRole = await this.roleService.readGeneralRoleByName(GeneralRole.PERSONAL_WORKSPACE, queryRunner)
+                if (oldWorkspaceUser && personalWorkspaceRole && oldWorkspaceUser.roleId !== personalWorkspaceRole.id) {
+                    await this.workspaceUserService.deleteWorkspaceUser(oldWorkspaceUser.workspaceId, user.id)
+                }
+            } catch (error) {
+                logger.error('Error handling personal workspace role:', error)
+                // Continue without deleting workspace user if personal workspace role not found
             }
 
             await queryRunner.startTransaction()

@@ -2,6 +2,7 @@ import client from '@/api/client'
 
 const inviteAccount = (body) => client.post(`/account/invite`, body)
 const registerAccount = (body) => client.post(`/account/register`, body)
+const createAccount = (body) => client.post(`/account/invite`, body)
 const verifyAccountEmail = (body) => client.post('/account/verify', body)
 const resendVerificationEmail = (body) => client.post('/account/resend-verification', body)
 const forgotPassword = (body) => client.post('/account/forgot-password', body)
@@ -15,6 +16,7 @@ export default {
     getBillingData,
     inviteAccount,
     registerAccount,
+    createAccount,
     verifyAccountEmail,
     resendVerificationEmail,
     forgotPassword,

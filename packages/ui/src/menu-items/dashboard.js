@@ -217,7 +217,6 @@ const dashboard = {
                     url: '/roles',
                     icon: icons.IconLockCheck,
                     breadcrumbs: true,
-                    display: 'feat:roles',
                     permission: 'roles:manage'
                 },
                 {
@@ -227,7 +226,6 @@ const dashboard = {
                     url: '/users',
                     icon: icons.IconUsers,
                     breadcrumbs: true,
-                    display: 'feat:users',
                     permission: 'users:manage'
                 },
                 {
@@ -237,7 +235,6 @@ const dashboard = {
                     url: '/workspaces',
                     icon: icons.IconStack2,
                     breadcrumbs: true,
-                    display: 'feat:workspaces',
                     permission: 'workspace:view'
                 },
                 {

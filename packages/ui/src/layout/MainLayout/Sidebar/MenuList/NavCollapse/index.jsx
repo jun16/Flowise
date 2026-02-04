@@ -8,6 +8,7 @@ import { Collapse, List, ListItemButton, ListItemIcon, ListItemText, Typography 
 
 // project imports
 import NavItem from '../NavItem'
+import { useAuth } from '@/hooks/useAuth'
 
 // assets
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
@@ -18,6 +19,7 @@ import { IconChevronDown, IconChevronUp } from '@tabler/icons-react'
 const NavCollapse = ({ menu, level }) => {
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
+    const { hasPermission, hasDisplay } = useAuth()
 
     const [open, setOpen] = useState(false)
     const [selected, setSelected] = useState(null)
@@ -27,8 +29,24 @@ const NavCollapse = ({ menu, level }) => {
         setSelected(!selected ? menu.id : null)
     }
 
+    const shouldDisplayMenu = (menu) => {
+        // Handle permission check
+        if (menu.permission && !hasPermission(menu.permission)) {
+            return false // Do not render if permission is lacking
+        }
+
+        // If `display` is defined, check against cloud/enterprise conditions
+        if (menu.display) {
+            const shouldsiplay = hasDisplay(menu.display)
+            return shouldsiplay
+        }
+
+        // If `display` is not defined, display by default
+        return true
+    }
+
     // menu collapse & item
-    const menus = menu.children?.map((item) => {
+    const menus = menu.children?.filter(shouldDisplayMenu).map((item) => {
         switch (item.type) {
             case 'collapse':
                 return <NavCollapse key={item.id} menu={item} level={level + 1} />

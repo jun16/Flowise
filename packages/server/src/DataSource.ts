@@ -1,7 +1,7 @@
 import 'reflect-metadata'
 import path from 'path'
 import * as fs from 'fs'
-import { DataSource } from 'typeorm'
+import { DataSource, LogLevel } from 'typeorm'
 import { getUserHome } from './utils'
 import { entities } from './database/entities'
 import { sqliteMigrations } from './database/migrations/sqlite'
@@ -18,6 +18,34 @@ export const init = async (): Promise<void> => {
     if (!fs.existsSync(flowisePath)) {
         fs.mkdirSync(flowisePath)
     }
+
+    // Get logging configuration based on Flowise official documentation
+    const getDatabaseLoggingConfig = (): LogLevel[] => {
+        // Use DEBUG env var to determine if we should log SQL queries
+        if (process.env.DEBUG === 'true') {
+            return ['error', 'warn', 'info', 'log', 'query']
+        }
+
+        // Use LOG_LEVEL env var to determine logging level
+        switch (process.env.LOG_LEVEL) {
+            case 'debug':
+                return ['error', 'warn', 'info', 'log', 'query']
+            case 'verbose':
+                return ['error', 'warn', 'info', 'log']
+            case 'info':
+                return ['error', 'warn', 'info']
+            case 'error':
+                return ['error']
+            default:
+                return ['error', 'warn']
+        }
+    }
+
+    const loggingConfig = {
+        logging: getDatabaseLoggingConfig(),
+        logger: 'advanced-console' as const
+    }
+
     switch (process.env.DATABASE_TYPE) {
         case 'sqlite':
             homePath = process.env.DATABASE_PATH ?? flowisePath
@@ -27,7 +55,8 @@ export const init = async (): Promise<void> => {
                 synchronize: false,
                 migrationsRun: false,
                 entities: Object.values(entities),
-                migrations: sqliteMigrations
+                migrations: sqliteMigrations,
+                ...loggingConfig
             })
             break
         case 'mysql':
@@ -43,7 +72,8 @@ export const init = async (): Promise<void> => {
                 migrationsRun: false,
                 entities: Object.values(entities),
                 migrations: mysqlMigrations,
-                ssl: getDatabaseSSLFromEnv()
+                ssl: getDatabaseSSLFromEnv(),
+                ...loggingConfig
             })
             break
         case 'mariadb':
@@ -59,7 +89,8 @@ export const init = async (): Promise<void> => {
                 migrationsRun: false,
                 entities: Object.values(entities),
                 migrations: mariadbMigrations,
-                ssl: getDatabaseSSLFromEnv()
+                ssl: getDatabaseSSLFromEnv(),
+                ...loggingConfig
             })
             break
         case 'postgres':
@@ -78,8 +109,7 @@ export const init = async (): Promise<void> => {
                 extra: {
                     idleTimeoutMillis: 120000
                 },
-                logging: ['error', 'warn', 'info', 'log'],
-                logger: 'advanced-console',
+                ...loggingConfig,
                 logNotifications: true,
                 poolErrorHandler: (err) => {
                     logger.error(`Database pool error: ${JSON.stringify(err)}`)
@@ -95,7 +125,8 @@ export const init = async (): Promise<void> => {
                 synchronize: false,
                 migrationsRun: false,
                 entities: Object.values(entities),
-                migrations: sqliteMigrations
+                migrations: sqliteMigrations,
+                ...loggingConfig
             })
             break
     }

@@ -2,16 +2,18 @@ import { useSelector } from 'react-redux'
 import { useConfig } from '@/store/context/ConfigContext'
 
 export const useAuth = () => {
-    const { isOpenSource } = useConfig()
+    const { isOpenSource, loading } = useConfig()
     const permissions = useSelector((state) => state.auth.permissions)
     const features = useSelector((state) => state.auth.features)
     const isGlobal = useSelector((state) => state.auth.isGlobal)
     const currentUser = useSelector((state) => state.auth.user)
 
     const hasPermission = (permissionId) => {
-        if (isOpenSource || isGlobal) {
+        // If config is still loading or user is global admin, default to true
+        if (loading || isGlobal) {
             return true
         }
+        // Check permissions regardless of mode
         if (!permissionId) return false
         const permissionIds = permissionId.split(',')
         if (permissions && permissions.length) {
@@ -35,7 +37,10 @@ export const useAuth = () => {
         if (!display) {
             return true
         }
-
+        // In open source mode, allow all displays
+        if (isOpenSource) {
+            return true
+        }
         // if it has display flag, but user has no features, then it should not be displayed
         if (!features || Array.isArray(features) || Object.keys(features).length === 0) {
             return false

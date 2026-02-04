@@ -194,6 +194,9 @@ export class App {
         // Switch off the default 'X-Powered-By: Express' header
         this.app.disable('x-powered-by')
 
+        // Set identity manager to app for access in middleware
+        this.app.set('identityManager', this.identityManager)
+
         // Add the expressRequestLogger middleware to log all requests
         this.app.use(expressRequestLogger)
 
